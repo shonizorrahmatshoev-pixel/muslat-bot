@@ -1,74 +1,139 @@
 import sqlite3
+import os
+from datetime import datetime
 
-def init_db():
-    conn = sqlite3.connect('muslat.db')
-    c = conn.cursor()
+DATABASE_NAME = "muslat.db"
+
+def get_connection():
+    """Get database connection"""
+    return sqlite3.connect(DATABASE_NAME)
+
+def init_database():
+    """Initialize database tables"""
+    conn = get_connection()
+    cursor = conn.cursor()
     
-    c.execute('''CREATE TABLE IF NOT EXISTS users
-                 (telegram_id INTEGER PRIMARY KEY, 
-                  phone_number TEXT UNIQUE, 
-                  name TEXT)''')
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS shipments
-                 (tracking_number TEXT PRIMARY KEY, 
-                  phone_number TEXT, 
-                  client_name TEXT, 
-                  status TEXT DEFAULT 'Pending',
-                  telegram_id INTEGER)''')
+    # Create shipments table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS shipments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tracking_number TEXT UNIQUE NOT NULL,
+            client_name TEXT,
+            phone_number TEXT,
+            status TEXT DEFAULT 'In Transit',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
     
     conn.commit()
     conn.close()
+    print("✅ Database initialized successfully!")
 
-def add_user(telegram_id, phone_number, name):
-    conn = sqlite3.connect('muslat.db')
-    c = conn.cursor()
+def add_shipment_info(tracking_number, client_name, phone_number, status="In Transit"):
+    """Add shipment to database"""
     try:
-        c.execute("INSERT INTO users VALUES (?, ?, ?)", (telegram_id, phone_number, name))
-        c.execute("UPDATE shipments SET telegram_id = ? WHERE phone_number = ?", (telegram_id, phone_number))
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        # Check if already exists
+        cursor.execute('SELECT tracking_number FROM shipments WHERE tracking_number = ?', (tracking_number,))
+        existing = cursor.fetchone()
+        
+        if existing:
+            # Update existing record
+            cursor.execute('''
+                UPDATE shipments 
+                SET client_name = ?, phone_number = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE tracking_number = ?
+            ''', (client_name, phone_number, status, tracking_number))
+            affected = cursor.rowcount
+        else:
+            # Insert new record
+            cursor.execute('''
+                INSERT INTO shipments (tracking_number, client_name, phone_number, status)
+                VALUES (?, ?, ?, ?)
+            ''', (tracking_number, client_name, phone_number, status))
+            affected = cursor.rowcount
+        
         conn.commit()
-        return True
-    except sqlite3.IntegrityError:
-        return False
-    finally:
         conn.close()
+        return affected > 0
+        
+    except Exception as e:
+        print(f"Error adding shipment: {e}")
+        return False
 
-def get_user_by_phone(phone_number):
-    conn = sqlite3.connect('muslat.db')
-    c = conn.cursor()
-    c.execute("SELECT telegram_id FROM users WHERE phone_number = ?", (phone_number,))
-    result = c.fetchone()
-    conn.close()
-    return result[0] if result else None
-
-def add_shipment(tracking, phone, name, status="In Transit"):
-    conn = sqlite3.connect('muslat.db')
-    c = conn.cursor()
-    telegram_id = get_user_by_phone(phone)
+def get_shipment_info(tracking_number, phone_number):
+    """Get shipment info by tracking number and/or phone"""
     try:
-        c.execute("INSERT INTO shipments VALUES (?, ?, ?, ?, ?)", 
-                  (tracking, phone, name, status, telegram_id))
-        conn.commit()
-        return True
-    except sqlite3.IntegrityError:
-        return False
-    finally:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        query = '''
+            SELECT tracking_number, client_name, phone_number, status, created_at, updated_at
+            FROM shipments
+        '''
+        
+        params = []
+        conditions = []
+        
+        if tracking_number:
+            conditions.append('tracking_number = ?')
+            params.append(tracking_number)
+            
+        if phone_number:
+            conditions.append('phone_number = ?')
+            params.append(phone_number)
+            
+        if conditions:
+            query += ' WHERE ' + ' OR '.join(conditions)
+        
+        cursor.execute(query, params)
+        result = cursor.fetchone()
         conn.close()
+        
+        if result:
+            return {
+                'tracking_number': result[0],
+                'client_name': result[1],
+                'phone_number': result[2],
+                'status': result[3],
+                'created_at': result[4],
+                'updated_at': result[5]
+            }
+        return None
+        
+    except Exception as e:
+        print(f"Error getting shipment: {e}")
+        return None
 
-def get_shipment(tracking_number, phone_number):
-    conn = sqlite3.connect('muslat.db')
-    c = conn.cursor()
-    c.execute("SELECT status, client_name FROM shipments WHERE tracking_number = ? AND phone_number = ?", 
-              (tracking_number, phone_number))
-    result = c.fetchone()
-    conn.close()
-    return result
-
-def get_all_shipments_by_phone(phone_number):
-    conn = sqlite3.connect('muslat.db')
-    c = conn.cursor()
-    c.execute("SELECT tracking_number, status FROM shipments WHERE phone_number = ?", (phone_number,))
-    results = c.fetchall()
-    conn.close()
-    return results
-
-init_db()
+def list_all_shipments():
+    """List all shipments in database"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT tracking_number, client_name, phone_number, status, updated_at
+            FROM shipments
+            ORDER BY updated_at DESC
+        ''')
+        results = cursor.fetchall()
+        conn.close()
+        
+        shipments = []
+        for row in results:
+            shipments.append({
+                'tracking_number': row[0],
+                'client_name': row[1],
+                'phone_number': row[2],
+                'status': row[3],
+                'updated_at': row[4]
+            })
+            
+        return shipments
+        
+    except Exception as e:
+        print(f"Error listing shipments: {e}")
+        return []
