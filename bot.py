@@ -2,11 +2,8 @@ import os
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, ConversationHandler
 from dotenv import load_dotenv
-import os
-import sqlite3
 from database import (init_database, register_user, get_user_info, 
-                      check_user_registered, is_admin,
-                      get_shipment_info, add_shipment_info, list_all_shipments)
+                      check_user_registered, add_shipment_info, list_all_shipments)
 import re
 
 load_dotenv()
@@ -18,20 +15,12 @@ REGISTERING = 1
 
 def main():
     """Run the bot"""
-    # FORCIBLY DELETE OLD DATABASE TO START FRESH
-    try:
-        if os.path.exists('muslat.db'):
-            os.remove('muslat.db')
-            print("🗑️ Deleted old muslat.db file!")
-    except Exception as e:
-        print(f"⚠️ Could not delete database: {e}")
-    
+    # Initialize database first
     init_database()
     
-    print(f"Bot starting with token: {TOKEN[:20]}...")
+    print(f"Bot starting... Token prefix: {TOKEN[:20]}...")
     
     app = Application.builder().token(TOKEN).build()
-    # ... rest of your code remains the same ...
     
     def create_menu_keyboard():
         keyboard = [
@@ -121,7 +110,7 @@ def main():
     app.add_handler(MessageHandler(filters.CONTACT, receive_contact))
     
     # ===== REGISTRATION VIA TEXT PHONE NUMBER =====
-        async def receive_phone_number(update: Update, context: CallbackContext):
+    async def receive_phone_number(update: Update, context: CallbackContext):
         text = update.message.text.strip()
         
         if text.startswith('+') and len(text.replace('+', '')) >= 9:
@@ -143,11 +132,11 @@ def main():
                     "Use /help to see all commands.",
                     reply_markup=create_menu_keyboard()
                 )
+                # CRITICAL FIX: End conversation so it doesn't ask for phone again!
+                return ConversationHandler.END
             else:
                 await update.message.reply_text("❌ Phone number already registered. Try another one.")
-            
-            # ⭐ THIS LINE IS CRITICAL - MUST END CONVERSATION
-            return ConversationHandler.END
+                return ConversationHandler.END
         else:
             await update.message.reply_text(
                 "⚠️ That doesn't look like a phone number.\n\n"
@@ -177,19 +166,20 @@ def main():
     
     app.add_handler(CommandHandler("track", track_command))
     
-        # ===== MAIN MESSAGE HANDLER (Tracking Lookup) =====
+    # ===== MAIN MESSAGE HANDLER (Tracking Lookup) =====
     async def handle_message(update: Update, context: CallbackContext):
         text = update.message.text.strip()
         
+        # Skip short messages
         if len(text) < 6:
             return
         
+        # Skip commands
         if text.startswith("/"):
             return
         
-        # FIX: Accept both alphanumeric (e.g., YT883...) AND pure numeric (e.g., 9813247828669)
-        if re.search(r'\d', text):  # Must have at least one digit
-            # Check if user is registered
+        # FIXED: Accept PURE NUMERIC tracking (like 9813247828669)
+        if re.search(r'\d', text):
             if not check_user_registered(update.message.from_user.id):
                 await update.message.reply_text(
                     "⚠️ You need to register first!\n\n"
@@ -223,7 +213,7 @@ def main():
     
     # ===== ADMIN: ADD SHIPMENT =====
     async def add_shipment_cmd(update: Update, context: CallbackContext):
-        if not is_admin(update.message.from_user.id):
+        if int(update.message.from_user.id) not in [int(aid) for aid in ADMIN_IDS]:
             await update.message.reply_text(
                 "❌ **Only admin users can add shipments!**",
                 reply_markup=create_menu_keyboard()
@@ -258,7 +248,7 @@ def main():
     
     # ===== ADMIN: LIST SHIPMENTS =====
     async def list_shipments_cmd(update: Update, context: CallbackContext):
-        if not is_admin(update.message.from_user.id):
+        if int(update.message.from_user.id) not in [int(aid) for aid in ADMIN_IDS]:
             await update.message.reply_text(
                 "❌ **Only admin users can view shipments!**",
                 reply_markup=create_menu_keyboard()
