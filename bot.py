@@ -121,7 +121,7 @@ def main():
     app.add_handler(MessageHandler(filters.CONTACT, receive_contact))
     
     # ===== REGISTRATION VIA TEXT PHONE NUMBER =====
-    async def receive_phone_number(update: Update, context: CallbackContext):
+        async def receive_phone_number(update: Update, context: CallbackContext):
         text = update.message.text.strip()
         
         if text.startswith('+') and len(text.replace('+', '')) >= 9:
@@ -146,6 +146,7 @@ def main():
             else:
                 await update.message.reply_text("❌ Phone number already registered. Try another one.")
             
+            # ⭐ THIS LINE IS CRITICAL - MUST END CONVERSATION
             return ConversationHandler.END
         else:
             await update.message.reply_text(
@@ -154,6 +155,8 @@ def main():
                 "1. Click the Contact button, OR\n"
                 "2. Type your full phone number starting with + (e.g., +992111004488)"
             )
+            # Stay in conversation mode for retries
+            return REGISTERING
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_phone_number))
     
