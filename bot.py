@@ -2,6 +2,8 @@ import os
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, ConversationHandler
 from dotenv import load_dotenv
+import os
+import sqlite3
 from database import (init_database, register_user, get_user_info, 
                       check_user_registered, is_admin,
                       get_shipment_info, add_shipment_info, list_all_shipments)
@@ -16,12 +18,20 @@ REGISTERING = 1
 
 def main():
     """Run the bot"""
+    # FORCIBLY DELETE OLD DATABASE TO START FRESH
+    try:
+        if os.path.exists('muslat.db'):
+            os.remove('muslat.db')
+            print("🗑️ Deleted old muslat.db file!")
+    except Exception as e:
+        print(f"⚠️ Could not delete database: {e}")
+    
     init_database()
     
-    print(f"Bot starting... Token prefix: {TOKEN[:15]}...")
-    print(f"Admin IDs configured: {[aid for aid in ADMIN_IDS if aid]}")
+    print(f"Bot starting with token: {TOKEN[:20]}...")
     
     app = Application.builder().token(TOKEN).build()
+    # ... rest of your code remains the same ...
     
     def create_menu_keyboard():
         keyboard = [
