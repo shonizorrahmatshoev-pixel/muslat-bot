@@ -5,14 +5,11 @@ from dotenv import load_dotenv
 from database import init_database, get_shipment_info, add_shipment_info, list_all_shipments
 import re
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
 
 TOKEN = os.getenv("TOKEN")
 ADMIN_IDS = os.getenv("ADMIN_IDS", "0").split(",")
-
-# Conversation states
-WAITING_FOR_PHONE = 1
 
 def main():
     """Run the bot"""
@@ -21,180 +18,163 @@ def main():
     
     print(f"Bot starting with token: {TOKEN[:20]}...")
     
-    # Create application with the token
+    # Create application
     app = Application.builder().token(TOKEN).build()
     
-    # Define START command handler FIRST
+    # START command handler
     async def start_command(update: Update, context: CallbackContext):
         user_name = update.message.from_user.first_name if update.message.from_user else "User"
         await update.message.reply_text(
             f"👋 Welcome to Muslat Express Bot, {user_name}!\n\n"
-            "Use these commands:\n"
-            "/track <number> - Check package status\n"
-            "/help - Show available commands\n\n"
-            "Send tracking number or contact to begin!"
+            "💡 **How to Track Packages**:\n\n"
+            "Method 1: Just send your tracking number directly\n"
+            "Example: YT88311855941829\n\n"
+            "Method 2: Use /help to see all commands"
         )
     
     app.add_handler(CommandHandler("start", start_command))
     
-    # Add help command handler
+    # HELP command handler
     async def help_command(update: Update, context: CallbackContext):
         help_text = (
-            "📦 **Muslat Express Tracking Bot Commands**\n\n"
-            "💡 **For Users:**\n"
-            "/track <number> - Track by shipment number\n"
-            "/help - Show this message\n\n"
-            "🔧 **For Admins Only:**\n"
-            "/addshipment - Add new shipment manually\n"
+            "📦 **Muslat Express Tracking Bot**\n\n"
+            "**For All Users**:\n"
+            "/start - Start the bot\n"
+            "/help - Show these commands\n"
+            "Send any text → Automatically checks if it's tracking number ✅\n\n"
+            "**Admin Only Commands**:\n"
+            "/addshipment <tracking> <name> <phone>\n"
             "/listshipments - View all shipments\n"
-            "/updateshipment - Update shipment status\n"
+            "/updateshipment <tracking> <new_status>\n\n"
+            "**Current User**: Admin access level"
         )
         await update.message.reply_text(help_text)
     
     app.add_handler(CommandHandler("help", help_command))
     
-    # Start track conversation
-    async def track_command(update: Update, context: CallbackContext):
-        if update.message.from_user.id not in [int(aid) for aid in ADMIN_IDS]:
-            await update.message.reply_text("⚠️ Please enter tracking number:")
-            return WAITING_FOR_TRACKING
-        
-        await update.message.reply_text("📋 Send tracking number, client name, and phone number:")
-        return WAITING_FOR_DATA
-    
-    app.add_handler(CommandHandler("track", track_command))
-    
-    # Phone verification handler
-    async def receive_contact(update: Update, context: CallbackContext):
-        contact = update.message.contact
-        phone_number = contact.phone_number
-        
-        client_name = contact.first_name
-        last_name = contact.last_name
-        if last_name:
-            client_name = f"{client_name} {last_name}"
-        
-        await update.message.reply_text(
-            f"✅ Contact received: {client_name}\nPhone: {phone_number}\n\n"
-            "Enter your tracking number now..."
-        )
-        
-        context.user_data['client_phone'] = phone_number
-        context.user_data['client_name'] = client_name
-        
-        return WAITING_FOR_PHONE
-    
-    app.add_handler(MessageHandler(filters.CONTACT, receive_contact))
-    
-    # Receive phone then tracking
-    async def receive_tracking_number(update: Update, context: CallbackContext):
-        tracking_number = update.message.text.strip()
-        phone_number = context.user_data.get('client_phone', 'Unknown')
-        client_name = context.user_data.get('client_name', 'Unknown')
-        
-        success = add_shipment_info(tracking_number, client_name, phone_number, "In Transit")
-        
-        if success:
-            await update.message.reply_text(f"✅ Shipment added: `{tracking_number}`")
-        else:
-            await update.message.reply_text("❌ Failed to add shipment")
-        
-        # Cleanup
-        if 'client_phone' in context.user_data:
-            del context.user_data['client_phone']
-        if 'client_name' in context.user_data:
-            del context.user_data['client_name']
-        
-        return ConversationHandler.END
-    
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_tracking_number))
-    
-    # Quick text tracking handler
-    async def quick_track(update: Update, context: CallbackContext):
+    # Main message handler for tracking
+    async def handle_message(update: Update, context: CallbackContext):
         text = update.message.text.strip()
         
-        # Check if text looks like tracking number (letters + numbers)
-        if len(text) >= 6 and re.search(r'[A-Za-z]', text):
+        # Skip short texts or messages that are just commands
+        if len(text) < 6 or text.startswith("/"):
+            return
+        
+        # Check if text looks like tracking number (has letters + numbers)
+        if re.search(r'[A-Za-z]', text) and re.search(r'\d', text):
             result = get_shipment_info(text, '')
             
             if result:
                 await update.message.reply_text(
                     f"📦 **Package Found!**\n\n"
-                    f"Tracking Number: `{result['tracking_number']}`\n"
-                    f"Client: {result['client_name']}\n"
-                    f"Status: {result['status']}\n"
-                    f"Last Update: {result['updated_at']}"
+                    f"**Tracking Number**: `{result['tracking_number']}`\n"
+                    f"**Client Name**: {result['client_name']}\n"
+                    f"**Phone**: {result['phone_number']}\n"
+                    f"**Status**: {result['status']}\n"
+                    f"**Last Updated**: {result['updated_at']}"
                 )
             else:
                 await update.message.reply_text(
                     f"❌ No record found for `{text}`\n\n"
-                    f"Try `/track {text}` or send tracking number again."
+                    "You can:\n"
+                    "1. Double-check the tracking number\n"
+                    "2. Ask admin to add this shipment"
                 )
     
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, quick_track))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    # Add admin shipment handlers
+    # ADMIN COMMANDS below this line
+    
+    # Add shipment command (Admin only)
     async def add_shipment_cmd(update: Update, context: CallbackContext):
-        if update.message.from_user.id not in [int(aid) for aid in ADMIN_IDS]:
-            await update.message.reply_text("❌ Only admin users can add shipments")
-            return ConversationHandler.END
+        if int(update.message.from_user.id) not in [int(aid) for aid in ADMIN_IDS]:
+            await update.message.reply_text("❌ Only admin users can add shipments!")
+            return
         
-        await update.message.reply_text(
-            "Please provide:\n"
-            "1. Tracking number\n"
-            "2. Client name\n"
-            "3. Phone number"
-        )
-        return WAITING_FOR_ADMIN_DATA
-    
-    app.add_handler(CommandHandler("addshipment", add_shipment_cmd))
-    
-    async def process_admin_shiptext(update: Update, context: CallbackContext):
-        data_parts = update.message.text.split(' ', 3)
+        args = update.message.text.split(' ', 3)
         
-        if len(data_parts) == 4:
-            tracking, name, phone, status = data_parts
+        if len(args) >= 4:
+            tracking, name, phone, status = args[1], args[2], args[3], 'In Transit'
+            
+            if len(args) == 5:
+                status = args[4]
             
             success = add_shipment_info(tracking, name, phone, status)
             
             if success:
-                await update.message.reply_text(f"✅ Shipment added: `{tracking}`")
+                await update.message.reply_text(f"✅ Shipment added successfully!\n\n`{tracking}` | {name} | {status}")
             else:
                 await update.message.reply_text("❌ Failed to add shipment")
-            
-            return ConversationHandler.END
         else:
             await update.message.reply_text(
-                "Format: /addshipment <tracking> <name> <phone>\n"
-                "Example: /addshipment YT123 John Doe +992123456789"
+                "Usage: /addshipment <tracking> <name> <phone> [status]\n\n"
+                "Example: /addshipment YT123 John Doe +992123456789 In Transit"
             )
-            return ConversationHandler.END
     
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_admin_shiptext))
+    app.add_handler(CommandHandler("addshipment", add_shipment_cmd))
     
-    # List shipments
-    async def list_shipments(update: Update, context: CallbackContext):
-        if update.message.from_user.id not in [int(aid) for aid in ADMIN_IDS]:
-            await update.message.reply_text("❌ Only admin users can view list")
-            return ConversationHandler.END
+    # List shipments command (Admin only)
+    async def list_shipments_cmd(update: Update, context: CallbackContext):
+        if int(update.message.from_user.id) not in [int(aid) for aid in ADMIN_IDS]:
+            await update.message.reply_text("❌ Only admin users can view all shipments!")
+            return
         
         shipments = list_all_shipments()
         
         if not shipments:
-            await update.message.reply_text("No shipments found in database.")
-            return ConversationHandler.END
+            await update.message.reply_text("🗄️ Database is empty. Use `/addshipment` to add records.")
+            return
         
-        msg = "📋 **All Shipments:**\n\n"
-        for s in shipments[:20]:  # Limit to 20 for readability
+        msg = "📋 **All Shipments** (showing first 20):\n\n"
+        for s in shipments[:20]:
             msg += f"`{s['tracking_number']}` | {s['client_name']} | {s['status']}\n"
         
         await update.message.reply_text(msg)
-        return ConversationHandler.END
     
-    app.add_handler(CommandHandler("listshipments", list_shipments))
+    app.add_handler(CommandHandler("listshipments", list_shipments_cmd))
+    
+    # Update shipment command (Admin only)
+    async def update_shipment_cmd(update: Update, context: CallbackContext):
+        if int(update.message.from_user.id) not in [int(aid) for aid in ADMIN_IDS]:
+            await update.message.reply_text("❌ Only admin users can update shipments!")
+            return
+        
+        args = update.message.text.split(' ', 2)
+        
+        if len(args) >= 3:
+            tracking, new_status = args[1], args[2]
+            
+            conn = sqlite3.connect('muslat.db')
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE shipments 
+                SET status = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE tracking_number = ?
+            ''', (new_status, tracking))
+            affected = cursor.rowcount
+            conn.commit()
+            conn.close()
+            
+            if affected > 0:
+                await update.message.reply_text(f"✅ Status updated!\n\n`{tracking}` → {new_status}")
+            else:
+                await update.message.reply_text(f"❌ No shipment found with tracking: `{tracking}`")
+        else:
+            await update.message.reply_text(
+                "Usage: /updateshipment <tracking> <new_status>\n\n"
+                "Example: /updateshipment YT123 Delivered"
+            )
+    
+    app.add_handler(CommandHandler("updateshipment", update_shipment_cmd))
+    
+    # Add error handler to prevent crashes
+    async def error_handler(update, context):
+        print(f"Update {update} caused error: {context.error}")
+    
+    app.add_error_handler(error_handler)
     
     # Start polling
-    print("✅ Bot is running... Use Ctrl+C to stop.")
+    print("✅ Bot is running... Send commands or tracking numbers!")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
