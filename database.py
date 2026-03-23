@@ -8,14 +8,14 @@ def get_connection():
     return sqlite3.connect(DATABASE_NAME)
 
 def init_database():
-    """Initialize database tables"""
+    """Initialize database tables & register admins"""
     import os
     
     DATABASE_NAME = "muslat.db"
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
     
-    # Create shipments table IF it doesn't exist
+    # Create shipments table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS shipments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,21 +33,45 @@ def init_database():
     # MIGRATION: Add missing columns if they don't exist
     try:
         cursor.execute("ALTER TABLE shipments ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-        print("✅ Added/Updated column: updated_at")
+        print("✅ Column updated_at handled!")
     except Exception as e:
         print(f"⚠️ Column may already exist: {e}")
     
     try:
         cursor.execute("ALTER TABLE shipments ADD COLUMN client_name TEXT")
-        print("✅ Added/Updated column: client_name")
+        print("✅ Column client_name handled!")
     except Exception as e:
         print(f"⚠️ Column may already exist: {e}")
     
     try:
         cursor.execute("ALTER TABLE shipments ADD COLUMN phone_number TEXT")
-        print("✅ Added/Updated column: phone_number")
+        print("✅ Column phone_number handled!")
     except Exception as e:
         print(f"⚠️ Column may already exist: {e}")
+    
+    # Create registered_users table FIRST
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS registered_users (
+            telegram_id INTEGER PRIMARY KEY,
+            phone_number TEXT UNIQUE NOT NULL,
+            name TEXT,
+            registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_admin INTEGER DEFAULT 0
+        )
+    ''')
+    print("✅ Users table created!")
+    
+    # ADD YOUR ADMIN ID RIGHT NOW! ⭐
+    try:
+        admin_id = int(1273176859)  # YOUR ACTUAL CHAT ID FROM TELEGRAM
+        cursor.execute('''
+            INSERT OR REPLACE INTO registered_users 
+            (telegram_id, phone_number, name, is_admin)
+            VALUES (?, ?, ?, ?)
+        ''', (admin_id, "Admin Account", "Shakhnoz R", 1))
+        print("✅ Added YOU as admin!")
+    except Exception as e:
+        print(f"⚠️ Could not add admin: {e}")
     
     # COMMIT ALL CHANGES FIRST
     conn.commit()
