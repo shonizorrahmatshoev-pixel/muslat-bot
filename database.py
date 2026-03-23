@@ -10,15 +10,12 @@ def get_connection():
 def init_database():
     """Initialize database tables"""
     import os
-    from dotenv import load_dotenv
     
-    load_dotenv()
-    
-    DATABASE_NAME = os.getenv("DATABASE_NAME", "muslat.db")
+    DATABASE_NAME = "muslat.db"
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
     
-    # Create shipments table
+    # Create shipments table IF it doesn't exist
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS shipments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -31,75 +28,32 @@ def init_database():
         )
     ''')
     
-    # MIGRATION FIX: Add missing columns if they don't exist
+    print("✅ Database tables created!")
+    
+    # MIGRATION: Add missing columns if they don't exist
     try:
         cursor.execute("ALTER TABLE shipments ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-        print("✅ Added updated_at column (migration)")
+        print("✅ Added/Updated column: updated_at")
     except Exception as e:
-        print(f"⚠️ Column may already exist or migration failed: {e}")
+        print(f"⚠️ Column may already exist: {e}")
     
     try:
         cursor.execute("ALTER TABLE shipments ADD COLUMN client_name TEXT")
-        print("✅ Added client_name column (migration)")
+        print("✅ Added/Updated column: client_name")
     except Exception as e:
         print(f"⚠️ Column may already exist: {e}")
     
     try:
         cursor.execute("ALTER TABLE shipments ADD COLUMN phone_number TEXT")
-        print("✅ Added phone_number column (migration)")
+        print("✅ Added/Updated column: phone_number")
     except Exception as e:
         print(f"⚠️ Column may already exist: {e}")
     
+    # COMMIT ALL CHANGES FIRST
     conn.commit()
-    conn.close()
-    print("✅ Database initialized successfully!")
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS shipments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            tracking_number TEXT UNIQUE NOT NULL,
-            client_name TEXT,
-            phone_number TEXT,
-            status TEXT DEFAULT 'In Transit',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
+    print("✅ Database committed successfully!")
     
-    # Create registered_users table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS registered_users (
-            telegram_id INTEGER PRIMARY KEY,
-            phone_number TEXT UNIQUE NOT NULL,
-            name TEXT,
-            registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            is_admin INTEGER DEFAULT 0
-        )
-    ''')
-    
-    # Add admin from environment variables
-    try:
-        import os
-        from dotenv import load_dotenv
-        
-        load_dotenv()
-        admin_ids_str = os.getenv("ADMIN_IDS", "0")
-        admin_ids = [aid.strip() for aid in admin_ids_str.split(",") if aid.strip()]
-        
-        cursor.execute("SELECT COUNT(*) FROM registered_users WHERE is_admin = 1")
-        if cursor.fetchone()[0] == 0 and admin_ids:
-            for admin_id in admin_ids:
-                try:
-                    cursor.execute('''
-                        INSERT INTO registered_users (telegram_id, phone_number, name, is_admin)
-                        VALUES (?, ?, ?, 1)
-                    ''', (int(admin_id), "Admin Account", "Admin User"))
-                except Exception as e:
-                    print(f"Warning: Could not add admin ID {admin_id}: {e}")
-        
-        conn.commit()
-    except Exception as e:
-        print(f"Warning during admin setup: {e}")
-    
+    # CLOSE CONNECTION LAST
     conn.close()
     print("✅ Database initialized successfully!")
 
