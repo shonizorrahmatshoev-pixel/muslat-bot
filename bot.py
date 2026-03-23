@@ -174,7 +174,7 @@ def main():
     
     app.add_handler(CommandHandler("track", track_command))
     
-    # ===== MAIN MESSAGE HANDLER (Tracking Lookup) =====
+        # ===== MAIN MESSAGE HANDLER (Tracking Lookup) =====
     async def handle_message(update: Update, context: CallbackContext):
         text = update.message.text.strip()
         
@@ -184,7 +184,9 @@ def main():
         if text.startswith("/"):
             return
         
-        if re.search(r'[A-Za-z]', text) and re.search(r'\d', text):
+        # FIX: Accept both alphanumeric (e.g., YT883...) AND pure numeric (e.g., 9813247828669)
+        if re.search(r'\d', text):  # Must have at least one digit
+            # Check if user is registered
             if not check_user_registered(update.message.from_user.id):
                 await update.message.reply_text(
                     "⚠️ You need to register first!\n\n"
