@@ -9,10 +9,50 @@ def get_connection():
 
 def init_database():
     """Initialize database tables"""
-    conn = get_connection()
+    import os
+    from dotenv import load_dotenv
+    
+    load_dotenv()
+    
+    DATABASE_NAME = os.getenv("DATABASE_NAME", "muslat.db")
+    conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
     
     # Create shipments table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS shipments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tracking_number TEXT UNIQUE NOT NULL,
+            client_name TEXT,
+            phone_number TEXT,
+            status TEXT DEFAULT 'In Transit',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # MIGRATION FIX: Add missing columns if they don't exist
+    try:
+        cursor.execute("ALTER TABLE shipments ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+        print("✅ Added updated_at column (migration)")
+    except Exception as e:
+        print(f"⚠️ Column may already exist or migration failed: {e}")
+    
+    try:
+        cursor.execute("ALTER TABLE shipments ADD COLUMN client_name TEXT")
+        print("✅ Added client_name column (migration)")
+    except Exception as e:
+        print(f"⚠️ Column may already exist: {e}")
+    
+    try:
+        cursor.execute("ALTER TABLE shipments ADD COLUMN phone_number TEXT")
+        print("✅ Added phone_number column (migration)")
+    except Exception as e:
+        print(f"⚠️ Column may already exist: {e}")
+    
+    conn.commit()
+    conn.close()
+    print("✅ Database initialized successfully!")
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS shipments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
