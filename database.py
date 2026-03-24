@@ -9,13 +9,12 @@ load_dotenv()
 
 DATABASE_URL = os.getenv("POSTGRES_URL", "sqlite:///muslat.db")
 
-# Create engine
 engine = create_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
 class Shipment(Base):
-    """Shipment table"""
+    """Shipments table"""
     __tablename__ = "shipments"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -53,7 +52,6 @@ def register_user(telegram_id, phone_number, name="Unknown"):
     """Register a user with phone number"""
     db = SessionLocal()
     try:
-        # Check if already exists
         existing = db.query(RegisteredUser).filter_by(telegram_id=telegram_id).first()
         if existing:
             existing.phone_number = phone_number
@@ -90,8 +88,12 @@ def get_user_info(telegram_id):
     try:
         user = db.query(RegisteredUser).filter_by(telegram_id=telegram_id).first()
         if user:
-            return {'telegram_id': user.telegram_id, 'phone_number': user.phone_number, 
-                    'name': user.name, 'is_admin': bool(user.is_admin)}
+            return {
+                'telegram_id': user.telegram_id,
+                'phone_number': user.phone_number,
+                'name': user.name,
+                'is_admin': bool(user.is_admin)
+            }
         return None
     finally:
         db.close()
@@ -125,13 +127,10 @@ def add_shipment(tracking_number, client_name, phone_number, status="In Transit"
         db.close()
 
 def get_shipment_info(tracking_number, phone_number=None):
-    """Get shipment info by tracking number and/or phone"""
+    """Get shipment info by tracking number"""
     db = SessionLocal()
     try:
-        query = db.query(Shipment).filter_by(tracking_number=tracking_number)
-        if phone_number:
-            query = query.filter(Shipment.phone_number == phone_number)
-        result = query.first()
+        result = db.query(Shipment).filter_by(tracking_number=tracking_number).first()
         if result:
             return {
                 'tracking_number': result.tracking_number,
@@ -164,7 +163,7 @@ def list_all_shipments(limit=50):
         db.close()
 
 def get_shipments_by_phone(phone):
-    """Filter shipments by phone number (admin feature)"""
+    """Filter shipments by phone number"""
     db = SessionLocal()
     try:
         shipments = db.query(Shipment).filter(Shipment.phone_number.contains(phone)).order_by(Shipment.updated_at.desc()).all()
