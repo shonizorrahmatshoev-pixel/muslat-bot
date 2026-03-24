@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("POSTGRES_URL", "sqlite:///muslat.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///muslat.db")
 
 engine = create_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(bind=engine)
