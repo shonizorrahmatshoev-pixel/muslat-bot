@@ -1,253 +1,182 @@
-import sqlite3
+import os
 from datetime import datetime
+from dotenv import load_dotenv
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 
-DATABASE_NAME = "muslat.db"
+load_dotenv()
 
-def get_connection():
-    """Get database connection"""
-    return sqlite3.connect(DATABASE_NAME)
+DATABASE_URL = os.getenv("POSTGRES_URL", "sqlite:///muslat.db")
+
+# Create engine
+engine = create_engine(DATABASE_URL, echo=False)
+SessionLocal = sessionmaker(bind=engine)
+Base = declarative_base()
+
+class Shipment(Base):
+    """Shipment table"""
+    __tablename__ = "shipments"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    tracking_number = Column(String(100), unique=True, nullable=False)
+    client_name = Column(String(200))
+    phone_number = Column(String(50))
+    status = Column(String(50), default="In Transit")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class RegisteredUser(Base):
+    """Registered users table"""
+    __tablename__ = "registered_users"
+    
+    telegram_id = Column(Integer, primary_key=True)
+    phone_number = Column(String(50), unique=True)
+    name = Column(String(200))
+    registered_at = Column(DateTime, default=datetime.utcnow)
+    is_admin = Column(Integer, default=0)
 
 def init_database():
-    """Initialize database tables & register admins"""
-    import os
-    
-    DATABASE_NAME = "muslat.db"
-    conn = sqlite3.connect(DATABASE_NAME)
-    cursor = conn.cursor()
-    
-    # Create shipments table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS shipments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            tracking_number TEXT UNIQUE NOT NULL,
-            client_name TEXT,
-            phone_number TEXT,
-            status TEXT DEFAULT 'In Transit',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    print("✅ Database tables created!")
-    
-    # MIGRATION: Add missing columns if they don't exist
+    """Create tables if they don't exist"""
+    Base.metadata.create_all(bind=engine)
+    print("✅ PostgreSQL database initialized!")
+
+def get_db():
+    """Get database session"""
+    db = SessionLocal()
     try:
-        cursor.execute("ALTER TABLE shipments ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-        print("✅ Column updated_at handled!")
-    except Exception as e:
-        print(f"⚠️ Column may already exist: {e}")
-    
-    try:
-        cursor.execute("ALTER TABLE shipments ADD COLUMN client_name TEXT")
-        print("✅ Column client_name handled!")
-    except Exception as e:
-        print(f"⚠️ Column may already exist: {e}")
-    
-    try:
-        cursor.execute("ALTER TABLE shipments ADD COLUMN phone_number TEXT")
-        print("✅ Column phone_number handled!")
-    except Exception as e:
-        print(f"⚠️ Column may already exist: {e}")
-    
-    # Create registered_users table FIRST
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS registered_users (
-            telegram_id INTEGER PRIMARY KEY,
-            phone_number TEXT UNIQUE NOT NULL,
-            name TEXT,
-            registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            is_admin INTEGER DEFAULT 0
-        )
-    ''')
-    print("✅ Users table created!")
-    
-    # ADD YOUR ADMIN ID RIGHT NOW! ⭐
-    try:
-        admin_id = int(1273176859)  # YOUR ACTUAL CHAT ID FROM TELEGRAM
-        cursor.execute('''
-            INSERT OR REPLACE INTO registered_users 
-            (telegram_id, phone_number, name, is_admin)
-            VALUES (?, ?, ?, ?)
-        ''', (admin_id, "Admin Account", "Shakhnoz R", 1))
-        print("✅ Added YOU as admin!")
-    except Exception as e:
-        print(f"⚠️ Could not add admin: {e}")
-    
-    # COMMIT ALL CHANGES FIRST
-    conn.commit()
-    print("✅ Database committed successfully!")
-    
-    # CLOSE CONNECTION LAST
-    conn.close()
-    print("✅ Database initialized successfully!")
+        yield db
+    finally:
+        db.close()
 
 def register_user(telegram_id, phone_number, name="Unknown"):
     """Register a user with phone number"""
+    db = SessionLocal()
     try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('SELECT telegram_id FROM registered_users WHERE telegram_id = ?', (telegram_id,))
-        if cursor.fetchone():
-            cursor.execute('''
-                UPDATE registered_users SET phone_number = ?
-                WHERE telegram_id = ?
-            ''', (phone_number, telegram_id))
-            affected = cursor.rowcount
+        # Check if already exists
+        existing = db.query(RegisteredUser).filter_by(telegram_id=telegram_id).first()
+        if existing:
+            existing.phone_number = phone_number
+            db.commit()
+            return True
         else:
-            cursor.execute('''
-                INSERT INTO registered_users (telegram_id, phone_number, name)
-                VALUES (?, ?, ?)
-            ''', (telegram_id, phone_number, name))
-            affected = cursor.rowcount
-        
-        conn.commit()
-        conn.close()
-        return affected > 0
-        
+            new_user = RegisteredUser(
+                telegram_id=telegram_id,
+                phone_number=phone_number,
+                name=name,
+                is_admin=1 if int(telegram_id) == int(os.getenv("ADMIN_IDS", "0")) else 0
+            )
+            db.add(new_user)
+            db.commit()
+            return True
     except Exception as e:
         print(f"Error registering user: {e}")
         return False
-
-def get_user_info(telegram_id):
-    """Get user info by telegram ID"""
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT telegram_id, phone_number, name, is_admin
-            FROM registered_users
-            WHERE telegram_id = ?
-        ''', (telegram_id,))
-        result = cursor.fetchone()
-        conn.close()
-        
-        if result:
-            return {
-                'telegram_id': result[0],
-                'phone_number': result[1],
-                'name': result[2],
-                'is_admin': result[3] == 1
-            }
-        return None
-        
-    except Exception as e:
-        print(f"Error getting user: {e}")
-        return None
+    finally:
+        db.close()
 
 def check_user_registered(telegram_id):
     """Check if user is registered"""
-    info = get_user_info(telegram_id)
-    return info is not None
-
-def is_admin(telegram_id):
-    """Check if user is admin"""
-    info = get_user_info(telegram_id)
-    return info is not None and info.get('is_admin', 0) == 1
-
-def add_shipment_info(tracking_number, client_name, phone_number, status="In Transit"):
-    """Add or update shipment in database"""
+    db = SessionLocal()
     try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('SELECT tracking_number FROM shipments WHERE tracking_number = ?', (tracking_number,))
-        existing = cursor.fetchone()
-        
+        user = db.query(RegisteredUser).filter_by(telegram_id=telegram_id).first()
+        return user is not None
+    finally:
+        db.close()
+
+def get_user_info(telegram_id):
+    """Get user info by telegram ID"""
+    db = SessionLocal()
+    try:
+        user = db.query(RegisteredUser).filter_by(telegram_id=telegram_id).first()
+        if user:
+            return {'telegram_id': user.telegram_id, 'phone_number': user.phone_number, 
+                    'name': user.name, 'is_admin': bool(user.is_admin)}
+        return None
+    finally:
+        db.close()
+
+def add_shipment(tracking_number, client_name, phone_number, status="In Transit"):
+    """Add shipment to database"""
+    db = SessionLocal()
+    try:
+        existing = db.query(Shipment).filter_by(tracking_number=tracking_number).first()
         if existing:
-            cursor.execute('''
-                UPDATE shipments 
-                SET client_name = ?, phone_number = ?, status = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE tracking_number = ?
-            ''', (client_name, phone_number, status, tracking_number))
-            affected = cursor.rowcount
+            existing.client_name = client_name
+            existing.phone_number = phone_number
+            existing.status = status
+            existing.updated_at = datetime.utcnow()
+            db.commit()
+            return True
         else:
-            cursor.execute('''
-                INSERT INTO shipments (tracking_number, client_name, phone_number, status)
-                VALUES (?, ?, ?, ?)
-            ''', (tracking_number, client_name, phone_number, status))
-            affected = cursor.rowcount
-        
-        conn.commit()
-        conn.close()
-        return affected > 0
-        
+            new_shipment = Shipment(
+                tracking_number=tracking_number,
+                client_name=client_name,
+                phone_number=phone_number,
+                status=status
+            )
+            db.add(new_shipment)
+            db.commit()
+            return True
     except Exception as e:
         print(f"Error adding shipment: {e}")
         return False
+    finally:
+        db.close()
 
 def get_shipment_info(tracking_number, phone_number=None):
     """Get shipment info by tracking number and/or phone"""
+    db = SessionLocal()
     try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        
-        query = '''
-            SELECT tracking_number, client_name, phone_number, status, created_at, updated_at
-            FROM shipments
-        '''
-        
-        params = []
-        conditions = []
-        
-        if tracking_number:
-            conditions.append('tracking_number = ?')
-            params.append(tracking_number)
-            
+        query = db.query(Shipment).filter_by(tracking_number=tracking_number)
         if phone_number:
-            conditions.append('phone_number = ?')
-            params.append(phone_number)
-            
-        if conditions:
-            query += ' WHERE ' + ' OR '.join(conditions)
-        
-        cursor.execute(query, params)
-        result = cursor.fetchone()
-        conn.close()
-        
+            query = query.filter(Shipment.phone_number == phone_number)
+        result = query.first()
         if result:
             return {
-                'tracking_number': result[0],
-                'client_name': result[1],
-                'phone_number': result[2],
-                'status': result[3],
-                'created_at': result[4],
-                'updated_at': result[5]
+                'tracking_number': result.tracking_number,
+                'client_name': result.client_name,
+                'phone_number': result.phone_number,
+                'status': result.status,
+                'created_at': str(result.created_at),
+                'updated_at': str(result.updated_at)
             }
         return None
-        
-    except Exception as e:
-        print(f"Error getting shipment: {e}")
-        return None
+    finally:
+        db.close()
 
 def list_all_shipments(limit=50):
-    """List all shipments in database"""
+    """List all shipments"""
+    db = SessionLocal()
     try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT tracking_number, client_name, phone_number, status, updated_at
-            FROM shipments
-            ORDER BY updated_at DESC
-            LIMIT ?
-        ''', (limit,))
-        results = cursor.fetchall()
-        conn.close()
-        
-        shipments = []
-        for row in results:
-            shipments.append({
-                'tracking_number': row[0],
-                'client_name': row[1],
-                'phone_number': row[2],
-                'status': row[3],
-                'updated_at': row[4]
+        shipments = db.query(Shipment).order_by(Shipment.updated_at.desc()).limit(limit).all()
+        result = []
+        for s in shipments:
+            result.append({
+                'tracking_number': s.tracking_number,
+                'client_name': s.client_name,
+                'phone_number': s.phone_number,
+                'status': s.status,
+                'updated_at': str(s.updated_at)
             })
-            
-        return shipments
-        
-    except Exception as e:
-        print(f"Error listing shipments: {e}")
-        return []
+        return result
+    finally:
+        db.close()
+
+def get_shipments_by_phone(phone):
+    """Filter shipments by phone number (admin feature)"""
+    db = SessionLocal()
+    try:
+        shipments = db.query(Shipment).filter(Shipment.phone_number.contains(phone)).order_by(Shipment.updated_at.desc()).all()
+        result = []
+        for s in shipments:
+            result.append({
+                'tracking_number': s.tracking_number,
+                'client_name': s.client_name,
+                'phone_number': s.phone_number,
+                'status': s.status,
+                'updated_at': str(s.updated_at)
+            })
+        return result
+    finally:
+        db.close()
