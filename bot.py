@@ -10,6 +10,7 @@ load_dotenv()
 
 TOKEN = os.getenv("TOKEN")
 ADMIN_IDS = [int(id.strip()) for id in os.getenv("ADMIN_IDS", "0").split(",")]
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///muslat.db")
 
 def create_menu_keyboard():
     """Clean menu buttons"""
@@ -71,40 +72,6 @@ async def receive_contact(update: Update, context: CallbackContext):
 
 app.add_handler(MessageHandler(filters.CONTACT, receive_contact))
 
-async def receive_phone_number(update: Update, context: CallbackContext):
-    """Registration via typing phone number"""
-    text = update.message.text.strip()
-    
-    if text.startswith('+') and len(text.replace('+', '')) >= 9:
-        user_name = update.message.from_user.first_name
-        last_name = update.message.from_user.last_name
-        full_name = (user_name + (' ' + last_name if last_name else '')).strip()
-        
-        success = register_user(update.message.from_user.id, text, full_name)
-        
-        if success:
-            msg = f"**✅ Registration Successful!**\n\n" \
-                  f"**Name**: {full_name}\n" \
-                  f"**Phone**: {text}\n\n" \
-                  "Now you can track packages!\n\n" \
-                  "Just send your tracking number directly.",
-                  reply_markup=create_menu_keyboard()
-            await update.message.reply_text(msg)
-        else:
-            await update.message.reply_text("❌ Phone already registered. Use different one.")
-            return None
-    
-    else:
-        await update.message.reply_text(
-            "⚠️ That's not a valid phone format.\n\n" \
-            "Use:\n" \
-            "1. Click Contact button OR\n" \
-            "2. Type full number like: +992111004488",
-            reply_markup=create_menu_keyboard()
-        )
-
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_phone_number))
-
 async def handle_message(update: Update, context: CallbackContext):
     """TRACKING LOOKUP - accepts ALL formats"""
     text = update.message.text.strip()
@@ -141,23 +108,6 @@ async def handle_message(update: Update, context: CallbackContext):
         )
 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-async def track_command(update: Update, context: CallbackContext):
-    """Manually trigger tracking input"""
-    if not check_user_registered(update.message.from_user.id):
-        await update.message.reply_text(
-            "⚠️ **Please register first!**\n\n" \
-            "Click Contact button below OR type `/register +992...`",
-            reply_markup=create_menu_keyboard()
-        )
-        return
-    
-    await update.message.reply_text(
-        "Enter your tracking number:",
-        reply_markup=create_menu_keyboard()
-    )
-
-app.add_handler(CommandHandler('track', track_command))
 
 async def add_shipment_cmd(update: Update, context: CallbackContext):
     """Admin-only command to add shipments manually"""
